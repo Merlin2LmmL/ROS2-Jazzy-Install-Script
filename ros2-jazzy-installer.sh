@@ -22,8 +22,10 @@ ROS_PACKAGE="ros-${ROS_DISTRO}-desktop"
 if [[ -t 1 ]]; then
   RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
   CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
+  MAGENTA='\033[0;35m'; DIM='\033[2m'
 else
   RED=''; YELLOW=''; GREEN=''; CYAN=''; BOLD=''; RESET=''
+  MAGENTA=''; DIM=''
 fi
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -38,6 +40,9 @@ die()   { error "$*"; exit 1; }
 #   Runs cmd in the background, shows a braille spinner + the last relevant
 #   log line updated in-place.  On success prints ✓; on failure prints ✗ + hint.
 #
+# FIX: Each redraw prefixes \033[2K to erase the entire terminal line before
+# writing, so shorter detail strings never leave stale characters behind.
+#
 # _SPINNER_LOG_START is set just before calling so the tail only picks up lines
 # produced by *this* command (avoids surfacing old log noise).
 _SPINNER_LOG_START=0
@@ -50,28 +55,29 @@ run_with_progress() {
   # Snapshot log length so we only tail new lines from this command
   _SPINNER_LOG_START=$(wc -l < "$LOGFILE" 2>/dev/null || echo 0)
 
-  # Run command, all output goes to logfile
+  # Run command; all output goes to logfile
   ( "$@" >> "$LOGFILE" 2>&1 ) &
   local pid=$!
 
   tput civis 2>/dev/null || true   # hide cursor
 
   while kill -0 "$pid" 2>/dev/null; do
-    # Pull last non-blank new log line; strip ANSI codes; truncate to 58 chars
+    # Pull last non-blank new log line; strip ANSI codes; truncate to 55 chars
     local detail
     detail=$(tail -n +"$(( _SPINNER_LOG_START + 1 ))" "$LOGFILE" 2>/dev/null \
       | grep -v '^[[:space:]]*$' \
       | tail -1 \
       | sed 's/\x1b\[[0-9;]*[mGKHF]//g' \
       | sed 's/^[[:space:]]*//' \
-      | cut -c1-58) || detail=""
+      | cut -c1-55) || detail=""
 
     # Elapsed timer mm:ss
     local mm ss timer
     mm=$(( elapsed / 60 )); ss=$(( elapsed % 60 ))
     printf -v timer "%02d:%02d" "$mm" "$ss"
 
-    printf "\r  ${CYAN}%s${RESET}  %-26s  ${YELLOW}%s${RESET}  %-58s" \
+    # \033[2K erases the entire current line so no stale characters can linger
+    printf "\r\033[2K  ${MAGENTA}%s${RESET}  ${BOLD}%-26s${RESET}  ${CYAN}│${RESET}  ${YELLOW}%s${RESET}  ${CYAN}│${RESET}  ${DIM}%-55s${RESET}" \
       "${frames[$f]}" "$label" "$timer" "$detail"
 
     f=$(( (f + 1) % ${#frames[@]} ))
@@ -82,14 +88,14 @@ run_with_progress() {
   wait "$pid"; local rc=$?
   tput cnorm 2>/dev/null || true   # restore cursor
 
-  # Clear the spinner line
-  printf "\r%-${COLUMNS:-100}s\r" ""
+  # Clear the spinner line cleanly
+  printf "\r\033[2K"
 
   if [[ $rc -eq 0 ]]; then
-    printf "  ${GREEN}✓${RESET}  %-26s  done\n" "$label"
+    printf "  ${GREEN}✓${RESET}  ${BOLD}%-26s${RESET}  done\n" "$label"
     echo "[DONE] $label" >> "$LOGFILE"
   else
-    printf "  ${RED}✗${RESET}  %-26s  FAILED  →  see ${LOGFILE}\n" "$label"
+    printf "  ${RED}✗${RESET}  ${BOLD}%-26s${RESET}  FAILED  →  see ${LOGFILE}\n" "$label"
     echo "[FAIL] $label" >> "$LOGFILE"
     return $rc
   fi
@@ -139,11 +145,12 @@ colcon_with_progress() {
         | tail -1 \
         | sed 's/\x1b\[[0-9;]*[mGKHF]//g' \
         | sed 's/^[[:space:]]*//' \
-        | cut -c1-58 || true)
+        | cut -c1-55 || true)
       detail="${detail:-}"
     fi
 
-    printf "\r  ${CYAN}%s${RESET}  %-26s  ${YELLOW}%s${RESET}  %-58s" \
+    # \033[2K erases the entire current line so no stale characters can linger
+    printf "\r\033[2K  ${MAGENTA}%s${RESET}  ${BOLD}%-26s${RESET}  ${CYAN}│${RESET}  ${YELLOW}%s${RESET}  ${CYAN}│${RESET}  ${DIM}%-55s${RESET}" \
       "${frames[$f]}" "$label" "$timer" "$detail"
 
     f=$(( (f + 1) % ${#frames[@]} ))
@@ -153,13 +160,13 @@ colcon_with_progress() {
 
   wait "$pid"; local rc=$?
   tput cnorm 2>/dev/null || true
-  printf "\r%-${COLUMNS:-100}s\r" ""
+  printf "\r\033[2K"
 
   if [[ $rc -eq 0 ]]; then
-    printf "  ${GREEN}✓${RESET}  %-26s  done\n" "$label"
+    printf "  ${GREEN}✓${RESET}  ${BOLD}%-26s${RESET}  done\n" "$label"
     echo "[DONE] $label" >> "$LOGFILE"
   else
-    printf "  ${RED}✗${RESET}  %-26s  FAILED  →  see ${LOGFILE}\n" "$label"
+    printf "  ${RED}✗${RESET}  ${BOLD}%-26s${RESET}  FAILED  →  see ${LOGFILE}\n" "$label"
     echo "[FAIL] $label" >> "$LOGFILE"
     return $rc
   fi
@@ -334,7 +341,11 @@ setup_locale() {
 step "Updating package lists"
 run_with_progress "apt update"   $SUDO apt-get update -qq
 
-[[ $SKIP_LOCALE -eq 0 ]] && setup_locale
+# FIX: locale is now prompted for BOTH binary and source modes.
+# Pass --skip-locale on the command line to bypass this step.
+if [[ $SKIP_LOCALE -eq 0 ]]; then
+  setup_locale
+fi
 
 # ── Base tools ─────────────────────────────────────────────────────────────────
 step "Installing base tools"
