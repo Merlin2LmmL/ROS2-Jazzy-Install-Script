@@ -5,14 +5,16 @@ Binary APT install by default (~5 min). Optional full source build.
 
 ---
 
-## Quick start
+## Quick start (Recommended)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Merlin2LmmL/ROS2-Jazzy-Install-Script/refs/heads/main/ros2-jazzy-installer.sh \
-  | bash
+  -o ros2-jazzy-installer.sh \
+  && chmod +x ros2-jazzy-installer.sh \
+  && ./ros2-jazzy-installer.sh
 ```
 
-### Recommended — fast source build (12 parallel workers)
+### Alternatively: fast source build (12 parallel workers)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Merlin2LmmL/ROS2-Jazzy-Install-Script/refs/heads/main/ros2-jazzy-installer.sh \
