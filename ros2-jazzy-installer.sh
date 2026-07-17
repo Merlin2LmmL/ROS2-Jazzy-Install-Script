@@ -16,7 +16,8 @@ INSTALL_MODE="binary"   # binary | source
 FAST_MODE=0
 PARALLEL_WORKERS=""
 SKIP_LOCALE=0
-ROS_PACKAGE="ros-${ROS_DISTRO}-desktop"
+ROS_PACKAGE=""
+SYSTEM_VARIANT="auto"
 
 # ── Colors ─────────────────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
@@ -172,6 +173,40 @@ colcon_with_progress() {
   fi
 }
 
+detect_system_variant() {
+
+  # User explicitly forced one
+  if [[ "$SYSTEM_VARIANT" != "auto" ]]; then
+    echo "$SYSTEM_VARIANT"
+    return
+  fi
+
+  # Running a desktop session
+  if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
+    echo "desktop"
+    return
+  fi
+
+  # Desktop metapackages installed
+  for pkg in \
+      ubuntu-desktop \
+      ubuntu-desktop-minimal \
+      ubuntu-gnome-desktop \
+      kubuntu-desktop \
+      xubuntu-desktop \
+      lubuntu-desktop \
+      ubuntu-mate-desktop \
+      ubuntu-budgie-desktop; do
+
+      if dpkg -s "$pkg" >/dev/null 2>&1; then
+          echo "desktop"
+          return
+      fi
+  done
+
+  echo "server"
+}
+
 
 # ── Usage ──────────────────────────────────────────────────────────────────────
 usage() {
@@ -207,14 +242,26 @@ while [[ $# -gt 0 ]]; do
     --parallel)      PARALLEL_WORKERS="$2";  shift 2 ;;
     --skip-locale)   SKIP_LOCALE=1;          shift ;;
     --workspace)     WORKSPACE="$2";         shift 2 ;;
+    --desktop)       SYSTEM_VARIANT="desktop"; shift ;;
+    --server)        SYSTEM_VARIANT="server"; shift ;;
     --help|-h)       usage ;;
     *) die "Unknown option: $1  (run with --help for usage)" ;;
   esac
 done
 
+# ── Auto-detect Desktop vs Server ──────────────────────────────────────────────
+SYSTEM_VARIANT="$(detect_system_variant)"
+
+# If the user didn't specify a package, choose one automatically.
+if [[ -z "$ROS_PACKAGE" ]]; then
+  if [[ "$SYSTEM_VARIANT" == "desktop" ]]; then
+    ROS_PACKAGE="ros-${ROS_DISTRO}-desktop"
+  else
+    ROS_PACKAGE="ros-${ROS_DISTRO}-ros-base"
+  fi
+fi
+
 # ── Privilege helper ───────────────────────────────────────────────────────────
-# Running as root (common in Docker)? Drop sudo entirely.
-# Otherwise require sudo and verify it exists.
 if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
   SUDO=""
 else
@@ -237,6 +284,7 @@ BANNER
 echo -e "${RESET}"
 echo -e "${BOLD}ROS 2 ${ROS_DISTRO} Installer${RESET}"
 echo -e "Mode      : ${CYAN}${INSTALL_MODE}${RESET}"
+echo -e "System    : ${CYAN}${SYSTEM_VARIANT}${RESET}"
 [[ "$INSTALL_MODE" == "binary" ]] && echo -e "Package   : ${CYAN}${ROS_PACKAGE}${RESET}"
 [[ "$INSTALL_MODE" == "source" ]] && echo -e "Workspace : ${CYAN}${WORKSPACE}${RESET}"
 echo -e "Log file  : ${CYAN}${LOGFILE}${RESET}"
